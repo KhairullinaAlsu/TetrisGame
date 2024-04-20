@@ -74,7 +74,7 @@ class Tetris:
         """
         intersection = False
         for pos in self.figure.image():
-            i, j = divmod(pos)
+            i, j = divmod(pos, 4)
             if i + self.figure.y > self.height - 1 or \
                     j + self.figure.x > self.width - 1 or \
                     j + self.figure.x < 0 or \
@@ -114,7 +114,7 @@ class Tetris:
         """Places the figure on the field, creates a new figure and updates the scores.
         """
         for pos in self.figure.image():
-            i, j = divmod(pos)
+            i, j = divmod(pos, 4)
             self.field[i + self.figure.y][j + self.figure.x] = self.figure.color
         self.break_lines()
         self.new_figure()
