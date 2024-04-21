@@ -1,5 +1,6 @@
 import pygame
 import random
+import itertools
 
 colors = [
     (0, 0, 0),
@@ -32,7 +33,7 @@ class Figure:
         |12|13|14|15|\n
     """
 
-    def __init__(self, x, y, shape=None):
+    def __init__(self, x, y, rotation=None, shape=None):
         self.x = x
         self.y = y
         if shape is not None:
@@ -40,7 +41,10 @@ class Figure:
         else:
             self.shape = random.randint(0, len(self.shapes) - 1)
         self.color = random.randint(1, len(colors) - 1)
-        self.rotation = 0
+        if rotation is not None:
+            self.rotation = rotation%(len(self.shapes[self.shape]))
+        else:
+            self.rotation = 0
 
     def image(self):
         return self.shapes[self.shape][self.rotation]
@@ -66,22 +70,75 @@ class Tetris:
     def new_figure(self):
         self.figure = Figure(round(self.width/2)-2, 0)
 
+    def check_intersection_figure(self, figure):
+        intersection = False
+        for pos in figure.image():
+            i, j = divmod(pos, 4)
+            if i + figure.y > self.height - 1 or \
+                    j + figure.x > self.width - 1 or \
+                    j + figure.x < 0 or \
+                    self.field[i + figure.y][j + figure.x] > 0:
+                intersection = True
+        return intersection
+
     def intersects(self):
         """Check if the piece intersects with the field or bounds.
 
         Returns:
             bool: Is there an intersection
         """
-        intersection = False
-        for pos in self.figure.image():
-            i, j = divmod(pos, 4)
-            if i + self.figure.y > self.height - 1 or \
-                    j + self.figure.x > self.width - 1 or \
-                    j + self.figure.x < 0 or \
-                    self.field[i + self.figure.y][j + self.figure.x] > 0:
-                intersection = True
-        return intersection
+        return self.check_intersection_figure(self.figure)
+    
+    def placeable(self):
+        """
+        Warning: Untested
+        
+        Returns the list of Figures that correspond to a valid figure placement.
+        Valid placement here means a position where the figure is inbounds, does not intersect the grid and cannot be lowered.
+        
+        Returns: Figure list
+        """
+        rotations = len(self.figure.shapes[self.figure.shape]) # number of rotations for a current figure
+        grid = [ [ [False for k in range(rotations)] for j in range(self.width+8)] for i in range(self.height) ]
+                
+        # grid[x,y,k] == Can the figure be placed at the x,y with rotation k
+        # due to the shapes, column of the shape can be negative.
+        
+        dRow = [0, 1, 0, 0];
+        dCol = [-1, 0, 1, 0];
+        dTurn = [0, 0, 0, 1];
+        
+        st = []
+        st.append(self.figure)
+        
+        valid = []
+ 
+        # Dfs
+        while len(st)>0:
+            curr = st.pop(-1);
+            row = curr.y;
+            col = curr.x;
+            turn = curr.rotation;
+    
+            if (self.check_intersection_figure(curr)):
+                continue
 
+            grid[row][col+4][turn] = True
+            if (self.check_intersection_figure(
+                Figure(y=row+1, x=col, rotation=turn, shape=self.figure.shape))):
+                # The figure can't be lowered
+                valid.append(curr)
+
+            for drow, dcol, dturn in zip(dRow, dCol, dTurn):
+                new_row = row + drow
+                new_col = col + dcol
+                new_turn = (turn + dturn)%rotations
+                if not grid[new_row][new_col+4][new_turn]:
+                    st.append(Figure(y=new_row, x=new_col, rotation=new_turn, shape=self.figure.shape))
+                
+        return valid
+                
+        
     def break_lines(self):
         """Delete complete lines and update the score."""
         lines = 0
@@ -199,14 +256,20 @@ while not done:
                                  [game.x + game.zoom * j + 1, game.y + game.zoom * i + 1, game.zoom - 2, game.zoom - 1])
 
     if game.figure is not None:
-        for i in range(4):
-            for j in range(4):
-                p = i * 4 + j
-                if p in game.figure.image():
-                    pygame.draw.rect(screen, colors[game.figure.color],
-                                     [game.x + game.zoom * (j + game.figure.x) + 1,
-                                      game.y + game.zoom * (i + game.figure.y) + 1,
-                                      game.zoom - 2, game.zoom - 2])
+        for pos in game.figure.image():
+            i, j = divmod(pos, 4)
+            pygame.draw.rect(screen, colors[game.figure.color],
+                                [game.x + game.zoom * (j + game.figure.x) + 1,
+                                game.y + game.zoom * (i + game.figure.y) + 1,
+                                game.zoom - 2, game.zoom - 2])
+                    
+    for fig in game.placeable()[:5]:
+        for pos in fig.image():
+            i, j = divmod(pos, 4)
+            pygame.draw.rect(screen, (0,128,0),
+                                [game.x + game.zoom * (j + fig.x) + 1,
+                                game.y + game.zoom * (i + fig.y) + 1,
+                                game.zoom - 2, game.zoom - 2])
 
     font = pygame.font.SysFont('Calibri', 25, True, False)
     font1 = pygame.font.SysFont('Calibri', 65, True, False)
