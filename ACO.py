@@ -27,25 +27,27 @@ class AntColony:
 
     def run(self):
         """
-        Run the ACO algorithm to find the shortest path for the TSP.
+        Run the ACO algorithm to find the max score for the game of Tetris.
 
         Returns:
-        - shortest_path: The shortest path found by the algorithm.
-        - shortest_distance: The distance of the shortest path.
+        - max_path: The shortest path found by the algorithm.
+        - max_score: The score of the shortest path.
         """
-        lowest_path = None
-        lowest_score = float('inf')
+        max_path = None
+        self.max_score = 0
         for i in range(self.n_iterations):
             paths, scores = self._construct_solutions()
             # YOUR CODE HERE
             # Update pheromones based on paths and distances
+            best_idx = np.argmax(scores)
+            if scores[best_idx] > self.max_score:
+                self.max_score = scores[best_idx]
+                max_path = paths[best_idx]
+                
             self._update_pheromones(paths, scores)
-            best_idx = np.argmin(scores)
-            if scores[best_idx] < lowest_score:
-                lowest_score = scores[best_idx]
-                lowest_path = paths[best_idx]
-            self.pheromones *= self.decay
-        return lowest_path, lowest_score
+            if i%25==0:
+                print(i, self.max_score)
+        return max_path, self.max_score
 
 
     def _construct_solutions(self):
@@ -80,6 +82,9 @@ class AntColony:
         
         for i, fig in enumerate(self.shape_seq):
             game.figure = fig
+            if game.intersects():
+                game.state = "gameover"
+                break
             ways = game.placeable()
             
             next_state = self._select_next(i, ways)
@@ -124,7 +129,11 @@ class AntColony:
         probabilities = [pow(self.pheromones[current][ch.y][ch.x][ch.rotation], self.alpha) * \
                         pow(self._distance_heuristic(ch), self.beta) for ch in choices]
         prob_sum = np.sum(probabilities)
-        next_node = np.random.choice(choices, p=probabilities/prob_sum)
+        if prob_sum == 0:
+            print("zero error")
+            next_node = np.random.randint(low=0, high=len(choices))
+        else:    
+            next_node = np.random.choice(choices, p=probabilities/prob_sum)
 
         return next_node
 
@@ -140,7 +149,7 @@ class AntColony:
         """
         # Define the heuristic value based on the distance
 
-        return figure.y/self.height
+        return (figure.y+1)/self.height
 
     def _score_function(self, n_pieces, n_lines):
         """Calculate the score function
@@ -163,7 +172,7 @@ class AntColony:
         
         for path, score in zip(paths, scores):
             for i, node in enumerate(path):
-                self.pheromones[i][node.y][node.x][node.rotation] += score
+                self.pheromones[i][node.y][node.x][node.rotation] += score/self.max_score
              
         
         """
@@ -187,7 +196,7 @@ if __name__ == '__main__':
     
     width = 7
     height = 12
-    decay = 0.5
+    decay = 0.2
     
     random.seed(42)
     shape_seq = []
