@@ -150,7 +150,7 @@ class Tetris:
                 for i1 in range(i, 1, -1):
                     for j in range(self.width):
                         self.field[i1][j] = self.field[i1 - 1][j]
-        self.score += lines ** 2
+        self.score += lines
 
     def go_space(self):
         """Send the piece down until it intersects with the field."""
@@ -262,7 +262,7 @@ if __name__ == '__main__':
                                     game.y + game.zoom * (i + game.figure.y) + 1,
                                     game.zoom - 2, game.zoom - 2])
                         
-        for fig in game.placeable()[:5]:
+        for fig in game.placeable():
             for pos in fig.image():
                 i, j = divmod(pos, 4)
                 pygame.draw.rect(screen, (0,128,0),

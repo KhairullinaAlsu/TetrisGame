@@ -1,9 +1,10 @@
 import numpy as np
 import random
+import copy
 from tetris import Tetris, Figure
 
 class AntColony:
-    def __init__(self, height, width, shape_seq, n_ants, n_iterations, decay, alpha=1, beta=1):
+    def __init__(self, height, width, shape_seq, n_ants, n_iterations, decay, alpha=2, beta=1):
         """
         Initialize the Ant Colony Optimization algorithm.
 
@@ -18,13 +19,44 @@ class AntColony:
         self.height = height
         self.width = width
         self.shape_seq = shape_seq
-        self.pheromones = np.ones((len(shape_seq), height, width, 4))
+        shape = [5 for _ in range(width-1)] 
+        shape.extend([height, width, 4, 7])
+        # altitude difference + height + width + rotation + shape
+        self.pheromones = np.ones(shape)
         self.n_ants = n_ants
         self.n_iterations = n_iterations
         self.decay = decay
         self.alpha = alpha
         self.beta = beta
 
+    def __altitude(self, game):
+        """Finds the differences betweeen highest occupied spaces in neighboring cells
+
+        Args:
+            game (Tetris)
+            
+        Returns:
+            ndarray[game.width]: altitude difference
+        """
+        altitudes = []
+        for j in range(game.width):
+            i = 0
+            while i <= game.height-1 and game.field[i][j] == 0:
+                i += 1
+            altitudes.append(i)
+        
+        ans = []
+        for i in range(len(altitudes)-1):
+            ans.append(altitudes[i] - altitudes[i+1])
+        ans = np.clip(ans, a_min=-2, a_max=2)
+        # Limit the values to the range [-2; 2]
+        # |0| - the altitudes are the same
+        # |1| - the altitudes differ by 1
+        # |2| - the altitudes differ by a value equal or greater than 2
+        
+        return ans
+                
+            
     def run(self):
         """
         Run the ACO algorithm to find the max score for the game of Tetris.
@@ -37,16 +69,14 @@ class AntColony:
         self.max_score = 0
         for i in range(self.n_iterations):
             paths, scores = self._construct_solutions()
-            # YOUR CODE HERE
-            # Update pheromones based on paths and distances
             best_idx = np.argmax(scores)
             if scores[best_idx] > self.max_score:
                 self.max_score = scores[best_idx]
                 max_path = paths[best_idx]
                 
-            self._update_pheromones(paths, scores)
-            if i%25==0:
-                print(i, self.max_score)
+            #self._update_pheromones(paths, scores)
+            if i%5==0:
+                print(f'Current iteration: {i}, Current max score: {self.max_score}')
         return max_path, self.max_score
 
 
@@ -85,10 +115,12 @@ class AntColony:
             if game.intersects():
                 game.state = "gameover"
                 break
-            ways = game.placeable()
             
-            next_state = self._select_next(i, ways)
-            path.append(next_state)
+            ways = game.placeable()
+            curr = list(self.__altitude(game))
+            
+            next_state = self._select_next(curr, ways, game)
+            path.append((curr, next_state))
             game.figure = next_state
             
             game.freeze()
@@ -96,25 +128,14 @@ class AntColony:
                 break
         
         if game.state == "start":
+            # Game ended with every figure placed.
             print("it's an actual miracle")
             
         score = self._score_function(i, game.score)
 
-
-
-            
-        """path = [0]  # Start from city 0
-        remaining = set(range(1, self.distances.shape[0]))
-        while remaining:
-            current_node = path[-1]
-            # Select the next city for the current path
-            next_node = self._select_next(current_node, remaining)
-            remaining.remove(next_node)
-            path.append(next_node)"""
-
         return path, score
         
-    def _select_next(self, current, choices):
+    def _select_next(self, current: list[int], choices: list[Figure], game:Tetris):
         """
         Select the path to the next node based on pheromone trails and heuristic.
 
@@ -126,18 +147,21 @@ class AntColony:
         - The next path to choose, randomly choosing with respect to the probabilities (probs)
         """
         # Calculate the probability of moving to each city in choices
-        probabilities = [pow(self.pheromones[current][ch.y][ch.x][ch.rotation], self.alpha) * \
-                        pow(self._distance_heuristic(ch), self.beta) for ch in choices]
+        #print(tuple(current + [choices[0].y, choices[0].x, choices[0].rotation, choices[0].shape]))
+        probabilities = [pow(self.pheromones[tuple(current + [ch.y, ch.x, ch.rotation, ch.shape])], self.alpha) * \
+                        pow(self._distance_heuristic(ch), self.beta) for i, ch in enumerate(choices)]
         prob_sum = np.sum(probabilities)
         if prob_sum == 0:
-            print("zero error")
-            next_node = np.random.randint(low=0, high=len(choices))
+            #print("zero error")
+            next_node = choices[0]
         else:    
             next_node = np.random.choice(choices, p=probabilities/prob_sum)
+        #next_node = choices[np.argmax(fit)]
+        #next_node = sorted(zip(fit, choices), key=lambda x: x[0], reverse=True)[0][1]
 
         return next_node
-
-    def _distance_heuristic(self, figure):
+    
+    def _distance_heuristic(self, figure: Figure):
         """
         Calculate the heuristic value for a figure placement
 
@@ -145,11 +169,11 @@ class AntColony:
         - figure: The placement of a figure
 
         Returns:
-        - The heuristic value for moving from city i to city j.
+        - The heuristic value for moving from current state with the new figure.
         """
         # Define the heuristic value based on the distance
 
-        return (figure.y+1)/self.height
+        return (figure.y + max(figure.image())//4)/self.height
 
     def _score_function(self, n_pieces, n_lines):
         """Calculate the score function
@@ -158,7 +182,7 @@ class AntColony:
             n_pieces (_type_): number of places pieces
             n_lines (_type_): number of cleared lines
         """
-        return n_pieces + n_lines*10
+        return n_lines
 
     def _update_pheromones(self, paths, scores):
         """
@@ -172,42 +196,46 @@ class AntColony:
         
         for path, score in zip(paths, scores):
             for i, node in enumerate(path):
-                self.pheromones[i][node.y][node.x][node.rotation] += score/self.max_score
-             
-        
-        """
-        for i in range(self.pheromones.shape[0]):
-            for y in range(self.pheromones.shape[1]):
-                for x in range(self.pheromones.shape[2]):
-                    for r in range(self.pheromones.shape[3]):
-                        for path, distance in zip(paths, scores):
-                            # YOUR CODE HERE
-                            # Check if city j follows city i in the path and update pheromones (For both directions)
-                            if path.index(i)<len(path)-1 and path[path.index(i)+1]==j:
-                                pheromones_sum[i][j] += 1/distance
-
-        for i in range(self.distances.shape[0]):
-            for j in range(self.distances.shape[1]):
-                new_pheromones[i][j] = self.pheromones[i][j]*pheromones_sum[i][j]*(1-self.decay)
-        """
+                curr = node[0]
+                fig = node[1]
+                curr.extend([fig.y, fig.x, fig.rotation, fig.shape])
+                self.pheromones[tuple(curr)] += \
+                    (score/self.max_score)
                 
         
 if __name__ == '__main__':
     
     width = 7
     height = 12
-    decay = 0.2
+    decay = 0.5
     
     random.seed(42)
     shape_seq = []
     for i in range(10000):
         shape_seq.append(Figure(round(width/2)-2, 0,
                                 shape=random.randint(0, random.randint(0, len(Figure.shapes) - 1))))
-        
-    aco = AntColony(height, width, shape_seq, 100, 1000, decay)
-    path, score = aco.run()
-    print(score)
-    print(path)
     
+    best_path, best_score = [0,0]
+    
+    aco = AntColony(height, width, shape_seq, 100, 75, decay, alpha=1, beta=4)
+    path, score = aco.run()
+    
+    if score > best_score:
+        best_path, best_score = path, score
+        
+    game = Tetris(height, width)
+    for node in best_path:
+        figure = node[1]
+        game.figure = figure
+        game.freeze()
+        for i in range(height):
+            for j in range(width):
+                if game.field[i][j] == 0:
+                    print('.', end='')
+                else:
+                    print('O', end='')
+            print()
+        print('---------------')
+    print(f'Eval: {best_score}, lines: {game.score}')
     
     
